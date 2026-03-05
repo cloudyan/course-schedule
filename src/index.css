@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .cell-input:empty:before {
+    content: attr(data-placeholder);
+    color: #cbd5e1;
+    pointer-events: none;
+    display: inline-block;
+  }
+}
+
+@layer base {
+  @media print {
+    .no-print {
+      display: none !important;
+    }
+    body {
+      background: white !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+    .print-container {
+      width: 100% !important;
+      max-width: none !important;
+      box-shadow: none !important;
+      border: none !important;
+      padding: var(--print-padding, 0) !important;
+      /* Force background images to print */
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    table {
+      border-collapse: collapse !important;
+      width: 100% !important;
+      table-layout: fixed;
+      page-break-inside: avoid;
+    }
+    th, td {
+      border: var(--border-width, 1px) solid var(--border-color, #000) !important;
+      color: black !important;
+    }
+    .print-guide {
+      border: 1px dashed #ccc !important;
+    }
+    /* Ensure colors are printed */
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+  }
+}
+
+@theme {
+  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
