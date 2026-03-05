@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { motion, useDragControls, AnimatePresence } from 'framer-motion';
-import { Printer, Plus, Trash2, Settings, Palette, Type, Image as ImageIcon, Layout, Box, CheckSquare, Square, X } from 'lucide-react';
+import { Printer, Plus, Trash2, Settings, Palette, Type, Image as ImageIcon, Layout, Box, CheckSquare, Square, X, FileText, Image as PhotoIcon } from 'lucide-react';
 
 interface Subject {
   name: string;
@@ -91,8 +91,7 @@ export default function App() {
   const [bgBlur, setBgBlur] = useState(0);
   const [isEditingEnabled, setIsEditingEnabled] = useState(false);
   const [showLogoPopover, setShowLogoPopover] = useState(false);
-  const [isAutoFit, setIsAutoFit] = useState(true);
-  const [paperSize, setPaperSize] = useState<'A4-landscape' | 'A4-portrait' | '6inch-landscape'>('A4-landscape');
+  const [paperSize, setPaperSize] = useState<'A4' | 'photo'>('A4');
   
   // Image States
   const [bgImage, setBgImage] = useState('');
@@ -105,6 +104,29 @@ export default function App() {
   const constraintsRef = useRef<HTMLDivElement>(null);
 
   const [isPrinting, setIsPrinting] = useState(false);
+
+  useEffect(() => {
+    document.body.setAttribute('data-paper-size', paperSize);
+
+    const dynamicPageStyleId = 'dynamic-print-page-size';
+    let styleEl = document.getElementById(dynamicPageStyleId) as HTMLStyleElement | null;
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = dynamicPageStyleId;
+      document.head.appendChild(styleEl);
+    }
+
+    styleEl.textContent =
+      paperSize === 'photo'
+        ? '@media print { @page { size: 6in 4in; margin: 0; } }'
+        : '@media print { @page { size: A4 landscape; margin: 0; } }';
+
+    return () => {
+      document.body.removeAttribute('data-paper-size');
+      const currentStyleEl = document.getElementById(dynamicPageStyleId);
+      if (currentStyleEl) currentStyleEl.remove();
+    };
+  }, [paperSize]);
 
   const handlePrint = () => {
     setIsPrinting(true);
@@ -214,34 +236,53 @@ export default function App() {
     return {};
   };
 
-  // Calculate dynamic row height if auto-fit is enabled
-  const effectiveRowHeight = useMemo(() => {
-    if (!isAutoFit) return rowHeight;
-    
-    // Approximate available height for the table in pixels (A4 landscape is ~794px wide, ~1123px tall)
-    // For landscape, height is ~794px. Subtracting margins and header.
-    let availableHeight = 500; // Default fallback
-    
-    if (paperSize === 'A4-landscape') availableHeight = 720;
-    else if (paperSize === 'A4-portrait') availableHeight = 1080;
-    else if (paperSize === '6inch-landscape') availableHeight = 600;
+  const effectiveRowHeight = rowHeight;
 
-    // Subtract print padding and guide margin (approximate)
-    availableHeight -= (printPadding * 2 + guideMargin * 2 + 100); // 100 for header
-    
-    const lessonRows = rowDefs.filter(r => r.type === 'lesson').length;
-    const breakRows = rowDefs.filter(r => r.type === 'break').length;
-    
-    // break rows are usually 24px fixed in the code currently
-    const breakTotalHeight = breakRows * 24;
-    const remainingHeight = availableHeight - breakTotalHeight;
-    
-    if (lessonRows <= 0) return rowHeight;
-    
-    const calculatedHeight = Math.floor(remainingHeight / lessonRows);
-    // Clamp between 20 and manual rowHeight
-    return Math.max(20, Math.min(rowHeight, calculatedHeight));
-  }, [isAutoFit, rowHeight, rowDefs, printPadding, guideMargin, paperSize]);
+  const photoFitScale = useMemo(() => {
+    if (paperSize !== 'photo') return 1;
+
+    const lessonRows = rowDefs.filter((r) => r.type === 'lesson').length;
+    const breakRows = rowDefs.filter((r) => r.type === 'break').length;
+
+    const baseBreakHeight = 16;
+    const estimatedHeaderHeight = 78;
+    const estimatedTableHeaderHeight = 36;
+    const estimatedFooterHeight = 24;
+
+    const estimatedHeight =
+      estimatedHeaderHeight +
+      estimatedTableHeaderHeight +
+      estimatedFooterHeight +
+      printPadding * 2 +
+      guideMargin * 2 +
+      lessonRows * effectiveRowHeight +
+      breakRows * baseBreakHeight;
+
+    const estimatedWidth = printPadding * 2 + guideMargin * 2 + 64 + days.length * 92;
+
+    const targetHeight = 4 * 96;
+    const targetWidth = 6 * 96;
+
+    const scaleByHeight = targetHeight / estimatedHeight;
+    const scaleByWidth = targetWidth / estimatedWidth;
+    const safeScale = Math.min(1, scaleByHeight, scaleByWidth) * 0.92;
+
+    return Math.max(0.35, Number(safeScale.toFixed(3)));
+  }, [paperSize, rowDefs, printPadding, guideMargin, effectiveRowHeight, days.length]);
+
+  const activeScale = paperSize === 'photo' ? photoFitScale : 1;
+  const effectiveFontSize = Number((fontSize * activeScale).toFixed(1));
+  const effectiveBorderWidth = Number(Math.max(0.5, borderWidth * activeScale).toFixed(2));
+  const paperBoundary =
+    paperSize === 'A4'
+      ? { widthCm: '29.7', heightCm: '21.0', name: 'A4 横向' }
+      : { widthCm: '15.24', heightCm: '10.16', name: '4x6 相纸' };
+  const scaledLessonRowHeight =
+    paperSize === 'photo'
+      ? Math.max(12, Math.floor(effectiveRowHeight * activeScale))
+      : effectiveRowHeight;
+  const scaledBreakRowHeight =
+    paperSize === 'photo' ? Math.max(12, Math.floor(16 * activeScale)) : 24;
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'bg' | 'header' | 'logo') => {
     const file = e.target.files?.[0];
@@ -258,11 +299,12 @@ export default function App() {
 
   return (
     <div 
-      className="min-h-screen bg-slate-100 p-4 md:p-6 font-sans"
+      className="min-h-screen print-root bg-slate-100 p-4 md:p-6 font-sans"
       style={{ 
         '--print-padding': `${printPadding}px`,
         '--border-color': borderColor,
-        '--border-width': `${borderWidth}px`
+        '--border-width': `${effectiveBorderWidth}px`,
+        '--photo-fit-scale': String(activeScale)
       } as React.CSSProperties}
     >
       {/* Floating Print Button for easier access */}
@@ -276,11 +318,41 @@ export default function App() {
         <span className="font-bold text-sm">{isPrinting ? '准备中...' : '打印'}</span>
       </button>
 
+      {/* 纸张尺寸切换 Tab */}
+      <div className="flex justify-center gap-2 mb-4 no-print z-10">
+        <button
+          onClick={() => setPaperSize('A4')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-md ${
+            paperSize === 'A4' 
+              ? 'bg-indigo-600 text-white shadow-indigo-200' 
+              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+          }`}
+        >
+          <FileText size={16} />
+          A4 纸张
+        </button>
+        <button
+          onClick={() => setPaperSize('photo')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-md ${
+            paperSize === 'photo' 
+              ? 'bg-indigo-600 text-white shadow-indigo-200' 
+              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+          }`}
+        >
+          <PhotoIcon size={16} />
+          相册纸 (4×6寸)
+        </button>
+        {paperSize === 'photo' && (
+          <div className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-200">
+            自适应缩放 {Math.round(activeScale * 100)}%
+          </div>
+        )}
+      </div>
+
       {/* Main Print Container (Background & Paper Margin) */}
       <div 
         className={`mx-auto bg-white shadow-2xl print-container mb-8 rounded-xl transition-all duration-300 flex flex-col ${
-          paperSize === 'A4-landscape' ? 'max-w-5xl aspect-[1.414/1]' : 
-          paperSize === 'A4-portrait' ? 'max-w-3xl aspect-[1/1.414]' : 
+          paperSize === 'A4' ? 'max-w-5xl aspect-[1.414/1]' : 
           'max-w-4xl aspect-[1.5/1]'
         }`}
         style={{ 
@@ -289,8 +361,8 @@ export default function App() {
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           position: 'relative',
-          height: isAutoFit ? 'auto' : 'auto',
-          minHeight: isAutoFit ? 'unset' : 'unset',
+          height: 'auto',
+          minHeight: 'unset',
           overflow: 'visible'
         }}
       >
@@ -305,11 +377,23 @@ export default function App() {
             }}
           />
         )}
-        {/* Dashed Guide Wrapper (Visual Margin) */}
+        {/* 纸张边界 - 灰色虚线边框（打印时隐藏） */}
         <div 
-          className="border-2 border-dashed border-slate-300 rounded-lg print-guide w-full"
+          className="border-[3px] border-dashed border-slate-500 print-guide w-full relative"
           style={{ padding: `${guideMargin}px` }}
         >
+          <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-[11px] text-slate-600 font-semibold whitespace-nowrap no-print bg-white/90 px-2 py-0.5 border border-slate-300">
+            纸张边界宽 {paperBoundary.widthCm} cm
+          </div>
+          <div
+            className="absolute top-1/2 left-0 -translate-x-full -translate-y-1/2 -ml-2 z-30 text-[11px] text-slate-600 font-semibold whitespace-nowrap no-print bg-white/95 px-2 py-1 border border-slate-300 pointer-events-none"
+            style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+          >
+            纸张边界高 {paperBoundary.heightCm} cm
+          </div>
+          <div className="absolute -bottom-7 right-0 text-[10px] text-slate-500 font-medium whitespace-nowrap no-print">
+            {paperBoundary.name} · 虚线即真实纸张边界
+          </div>
           <div className="relative w-full" ref={constraintsRef}>
             {/* Print-only Header (Static) */}
             {headerImage && (
@@ -493,7 +577,7 @@ export default function App() {
                 <tr>
                   <th 
                     className="bg-slate-200/90 text-slate-600 font-bold text-[10px] w-16"
-                    style={{ borderColor: borderColor, borderWidth: `${borderWidth}px`, borderStyle: 'solid' }}
+                    style={{ borderColor: borderColor, borderWidth: `${effectiveBorderWidth}px`, borderStyle: 'solid' }}
                   >
                     <input
                       type="text"
@@ -506,7 +590,7 @@ export default function App() {
                     <th 
                       key={idx} 
                       className="p-2 bg-slate-200/90 text-slate-900 font-black text-sm"
-                      style={{ borderColor: borderColor, borderWidth: `${borderWidth}px`, borderStyle: 'solid' }}
+                      style={{ borderColor: borderColor, borderWidth: `${effectiveBorderWidth}px`, borderStyle: 'solid' }}
                     >
                       <div className="flex items-center justify-center gap-0.5">
                         <input
@@ -564,9 +648,9 @@ export default function App() {
                             className="text-center bg-slate-100/80 font-bold text-xs relative"
                             style={{ 
                               borderColor: borderColor, 
-                              borderWidth: `${borderWidth}px`,
+                              borderWidth: `${effectiveBorderWidth}px`,
                               borderStyle: 'solid',
-                              height: `${effectiveRowHeight}px`
+                              height: `${scaledLessonRowHeight}px`
                             }}
                           >
                             {isEditingEnabled && (
@@ -599,9 +683,9 @@ export default function App() {
                                 style={{ 
                                   ...style,
                                   borderColor: borderColor, 
-                                  borderWidth: `${borderWidth}px`,
+                                  borderWidth: `${effectiveBorderWidth}px`,
                                   borderStyle: 'solid',
-                                  height: `${effectiveRowHeight}px`
+                                  height: `${scaledLessonRowHeight}px`
                                 }}
                               >
                                 <div className="w-full h-full flex items-center justify-center p-1">
@@ -612,9 +696,9 @@ export default function App() {
                                     data-placeholder="+"
                                     className="w-full outline-none focus:ring-0 text-center whitespace-pre-wrap break-words cell-input"
                                     style={{ 
-                                      fontSize: `${fontSize}px`, 
+                                      fontSize: `${effectiveFontSize}px`, 
                                       fontWeight: 'bold',
-                                      lineHeight: '1.2'
+                                      lineHeight: paperSize === 'photo' ? '1.05' : '1.2'
                                     }}
                                   >
                                     {course?.name || ''}
@@ -630,9 +714,9 @@ export default function App() {
                           className="text-center bg-slate-100/40 text-[10px] font-medium text-slate-500 italic relative"
                           style={{ 
                             borderColor: borderColor, 
-                            borderWidth: `${borderWidth}px`,
+                            borderWidth: `${effectiveBorderWidth}px`,
                             borderStyle: 'solid',
-                            height: '24px'
+                            height: `${scaledBreakRowHeight}px`
                           }}
                         >
                           {isEditingEnabled && (
@@ -867,43 +951,47 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 flex justify-between">
-                  纸张尺寸 
-                </label>
-                <select 
-                  value={paperSize} 
-                  onChange={(e) => setPaperSize(e.target.value as any)}
-                  className="w-full text-[10px] py-1 px-2 border border-slate-200 rounded bg-white outline-none focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value="A4-landscape">A4 横版</option>
-                  <option value="A4-portrait">A4 竖版</option>
-                  <option value="6inch-landscape">6 寸相纸横版</option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 flex justify-between">
-                  高度自适应
-                </label>
-                <button 
-                  onClick={() => setIsAutoFit(!isAutoFit)}
-                  className={`w-full py-1 text-[10px] rounded border transition-all ${isAutoFit ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200'}`}
-                >
-                  {isAutoFit ? '开启 (自动压缩)' : '关闭 (手动调节)'}
-                </button>
-              </div>
+               <div className="space-y-1">
+                 <label className="text-[10px] font-medium text-slate-500 flex justify-between">
+                   纸张尺寸
+                 </label>
+                 <div className="flex gap-2">
+                   <button
+                     onClick={() => setPaperSize('A4')}
+                     className={`flex-1 py-1.5 text-[10px] rounded-lg border transition-all flex items-center justify-center gap-1 ${
+                       paperSize === 'A4' 
+                         ? 'bg-indigo-600 text-white border-indigo-600' 
+                         : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                     }`}
+                   >
+                     <FileText size={12} />
+                     A4
+                   </button>
+                   <button
+                     onClick={() => setPaperSize('photo')}
+                     className={`flex-1 py-1.5 text-[10px] rounded-lg border transition-all flex items-center justify-center gap-1 ${
+                       paperSize === 'photo' 
+                         ? 'bg-indigo-600 text-white border-indigo-600' 
+                         : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                     }`}
+                   >
+                     <PhotoIcon size={12} />
+                     相册纸
+                   </button>
+                 </div>
+               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-medium text-slate-500 flex justify-between">
                   虚线边距 <span>{guideMargin}px</span>
                 </label>
                 <input type="range" min="0" max="50" value={guideMargin} onChange={(e) => setGuideMargin(parseInt(e.target.value))} className="w-full h-1 bg-slate-100 rounded-lg appearance-none accent-indigo-600" />
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-slate-500 flex justify-between">
-                  {isAutoFit ? '最大行高' : '行高'} <span>{rowHeight}px</span>
-                </label>
-                <input type="range" min="20" max="100" value={rowHeight} onChange={(e) => setRowHeight(parseInt(e.target.value))} className="w-full h-1 bg-slate-100 rounded-lg appearance-none accent-indigo-600" />
-              </div>
+               <div className="space-y-1">
+                 <label className="text-[10px] font-medium text-slate-500 flex justify-between">
+                   行高 <span>{rowHeight}px</span>
+                 </label>
+                 <input type="range" min="20" max="100" value={rowHeight} onChange={(e) => setRowHeight(parseInt(e.target.value))} className="w-full h-1 bg-slate-100 rounded-lg appearance-none accent-indigo-600" />
+               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-medium text-slate-500 flex justify-between">
                   字号 <span>{fontSize}px</span>

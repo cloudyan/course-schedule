@@ -19,33 +19,64 @@
       padding: 0 !important;
       margin: 0 !important;
     }
+    #root,
+    .print-root {
+      min-height: 0 !important;
+      height: auto !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      background: white !important;
+    }
     .print-container {
       width: 100% !important;
       max-width: none !important;
       box-shadow: none !important;
       border: none !important;
       padding: var(--print-padding, 0) !important;
-      /* Force background images to print */
+      margin: 0 !important;
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
     table {
       border-collapse: collapse !important;
       width: 100% !important;
       table-layout: fixed;
-      page-break-inside: avoid;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
     th, td {
       border: var(--border-width, 1px) solid var(--border-color, #000) !important;
       color: black !important;
     }
-    .print-guide {
-      border: 1px dashed #ccc !important;
+    tr {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
-    /* Ensure colors are printed */
+    .print-guide {
+      border: none !important;
+    }
+    html, body {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      height: auto !important;
+      min-height: auto !important;
+    }
     * {
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
+    }
+    body[data-paper-size='photo'] .print-container {
+      width: 6in !important;
+      height: 4in !important;
+      max-width: 6in !important;
+      max-height: 4in !important;
+      overflow: hidden !important;
+      margin: 0 auto !important;
+    }
+    @page {
+      margin: 0;
     }
   }
 }
